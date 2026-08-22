@@ -13,46 +13,40 @@ spec:
   podTemplate:
     spec:
       initContainers:
-        - name: pyflink-bootstrap
-          image: flink:1.20-scala_2.12-java17
-          command: ["/bin/bash", "-c"]
+        - name: install-pyflink
+          image: python:3.10-slim
+          command: ["/bin/sh", "-c"]
           args:
             - |
-              set -e
-              apt-get update
-              apt-get install -y --no-install-recommends python3 python3-pip curl
-              PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
-              PYBIN=$(readlink -f "$(which python3)")
-              mkdir -p /shared/venv/bin "/shared/venv/lib/python${PYVER}/site-packages"
-              cp "$PYBIN" /shared/venv/bin/python3
-              cp -a "/usr/lib/python${PYVER}/." "/shared/venv/lib/python${PYVER}/"
-              cp /usr/lib/x86_64-linux-gnu/libpython${PYVER}*.so* /shared/venv/lib/ 2>/dev/null || true
-              pip3 install --no-cache-dir --target="/shared/venv/lib/python${PYVER}/site-packages" apache-flink==1.20.1
-              curl -fL -o /shared/jars/flink-sql-connector-kafka.jar \
-                https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
+              set -ex
+              # 1. Install PyFlink into shared directory using --prefix
+              pip install --prefix=/opt/flink/python-libs apache-flink kafka-python-ng
+              
+              # 2. Download Kafka connector JAR
+              mkdir -p /opt/flink/usrlib
+              curl -Lo /opt/flink/usrlib/flink-sql-connector-kafka-3.1.0-1.18.jar \
+                https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
           volumeMounts:
-            - name: shared-venv
-              mountPath: /shared/venv
-            - name: shared-jars
-              mountPath: /shared/jars
+            - name: python-libs
+              mountPath: /opt/flink/python-libs
+            - name: flink-usrlib
+              mountPath: /opt/flink/usrlib
       containers:
         - name: flink-main-container
           env:
-            - name: PYTHONHOME
-              value: /shared/venv
-            - name: LD_LIBRARY_PATH
-              value: /shared/venv/lib
+            - name: PYTHONPATH
+              value: "/opt/flink/python-libs/lib/python3.10/site-packages"
           volumeMounts:
-            - name: shared-venv
-              mountPath: /shared/venv
-            - name: shared-jars
-              mountPath: /shared/jars
-            - name: pyflink-scripts
+            - name: python-libs
+              mountPath: /opt/flink/python-libs
+            - name: flink-usrlib
               mountPath: /opt/flink/usrlib
+            - name: pyflink-scripts
+              mountPath: /opt/flink/scripts
       volumes:
-        - name: shared-venv
+        - name: python-libs
           emptyDir: {}
-        - name: shared-jars
+        - name: flink-usrlib
           emptyDir: {}
         - name: pyflink-scripts
           configMap:
@@ -62,9 +56,9 @@ spec:
     entryClass: org.apache.flink.client.python.PythonDriver
     args:
       - "-pyclientexec"
-      - "/shared/venv/bin/python3"
+      - "python3"
       - "-py"
-      - "/opt/flink/usrlib/validation_job.py"
+      - "/opt/flink/scripts/validation_job.py"
     parallelism: 1
     upgradeMode: stateless
   jobManager:
