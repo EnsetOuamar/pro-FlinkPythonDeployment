@@ -1,0 +1,158 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-pyflink-scripts
+  namespace: platine-traitement
+data:
+  validation_job.py: |
+    import json
+    from pyflink.common import SimpleStringSchema, WatermarkStrategy
+    from pyflink.common.typeinfo import Types
+    from pyflink.datastream import StreamExecutionEnvironment
+    from pyflink.datastream.connectors.kafka import (
+        KafkaSource, KafkaSink, KafkaOffsetsInitializer, KafkaRecordSerializationSchema
+    )
+    
+    BOOTSTRAP = "platine-kafka-kafka-bootstrap.platine-kafka.svc.cluster.local:9092"
+    
+    
+    def is_valid(value: str) -> bool:
+        try:
+            data = json.loads(value)
+            return data.get("status") == "OK" and bool(data.get("imsi"))
+        except Exception:
+            return False
+    
+    
+    def tag_validated(value: str) -> str:
+        data = json.loads(value)
+        data["validated_by"] = "flink-validation-engine"
+        return json.dumps(data)
+    
+    
+    def main():
+        env = StreamExecutionEnvironment.get_execution_environment()
+        env.add_jars("file:///shared/jars/flink-sql-connector-kafka.jar")
+        env.enable_checkpointing(10000)
+    
+        source = (
+            KafkaSource.builder()
+            .set_bootstrap_servers(BOOTSTRAP)
+            .set_topics("events.raw")
+            .set_group_id("flink-validation-group")
+            .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+            .set_value_only_deserializer(SimpleStringSchema())
+            .build()
+        )
+    
+        valid_sink = (
+            KafkaSink.builder()
+            .set_bootstrap_servers(BOOTSTRAP)
+            .set_record_serializer(
+                KafkaRecordSerializationSchema.builder()
+                .set_topic("events.validated")
+                .set_value_serialization_schema(SimpleStringSchema())
+                .build()
+            )
+            .build()
+        )
+    
+        dlq_sink = (
+            KafkaSink.builder()
+            .set_bootstrap_servers(BOOTSTRAP)
+            .set_record_serializer(
+                KafkaRecordSerializationSchema.builder()
+                .set_topic("events.dead-letter")
+                .set_value_serialization_schema(SimpleStringSchema())
+                .build()
+            )
+            .build()
+        )
+    
+        stream = env.from_source(source, WatermarkStrategy.no_watermarks(), "kafka-source")
+    
+        valid_stream = stream.filter(is_valid).map(tag_validated, output_type=Types.STRING())
+        invalid_stream = stream.filter(lambda v: not is_valid(v))
+    
+        valid_stream.sink_to(valid_sink)
+        invalid_stream.sink_to(dlq_sink)
+    
+        env.execute("platine-validation-job")
+    
+    
+    if __name__ == "__main__":
+        main()
+  enrichment_job.py: |
+    import json
+    from pyflink.common import SimpleStringSchema, WatermarkStrategy
+    from pyflink.common.typeinfo import Types
+    from pyflink.datastream import StreamExecutionEnvironment, KeyedProcessFunction, RuntimeContext
+    from pyflink.datastream.state import ValueStateDescriptor
+    from pyflink.datastream.connectors.kafka import (
+        KafkaSource, KafkaSink, KafkaOffsetsInitializer, KafkaRecordSerializationSchema
+    )
+    
+    BOOTSTRAP = "platine-kafka-kafka-bootstrap.platine-kafka.svc.cluster.local:9092"
+    
+    
+    class EnrichFunction(KeyedProcessFunction):
+        def open(self, runtime_context: RuntimeContext):
+            # This state is managed by Flink itself: checkpointed, and restored
+            # automatically on pod restart or job recovery. This is the fix for
+            # the plain-Python version's in-memory-only state.
+            self.total_state = runtime_context.get_state(
+                ValueStateDescriptor("cumulative_total_bytes", Types.LONG())
+            )
+    
+        def process_element(self, value: str, ctx: "KeyedProcessFunction.Context"):
+            data = json.loads(value)
+            bytes_total = data.get("bytes_in", 0) + data.get("bytes_out", 0)
+    
+            current = self.total_state.value()
+            if current is None:
+                current = 0
+            new_total = current + bytes_total
+            self.total_state.update(new_total)
+    
+            data["cumulative_total_bytes"] = new_total
+            data["enriched"] = True
+            yield json.dumps(data)
+    
+    
+    def main():
+        env = StreamExecutionEnvironment.get_execution_environment()
+        env.add_jars("file:///shared/jars/flink-sql-connector-kafka.jar")
+        env.enable_checkpointing(10000)  # checkpoint every 10s
+    
+        source = (
+            KafkaSource.builder()
+            .set_bootstrap_servers(BOOTSTRAP)
+            .set_topics("events.validated")
+            .set_group_id("flink-enrichment-group")
+            .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+            .set_value_only_deserializer(SimpleStringSchema())
+            .build()
+        )
+    
+        sink = (
+            KafkaSink.builder()
+            .set_bootstrap_servers(BOOTSTRAP)
+            .set_record_serializer(
+                KafkaRecordSerializationSchema.builder()
+                .set_topic("events.enriched")
+                .set_value_serialization_schema(SimpleStringSchema())
+                .build()
+            )
+            .build()
+        )
+    
+        stream = env.from_source(source, WatermarkStrategy.no_watermarks(), "kafka-source")
+        keyed = stream.key_by(lambda v: json.loads(v).get("imsi"))
+        enriched = keyed.process(EnrichFunction(), output_type=Types.STRING())
+        enriched.sink_to(sink)
+    
+        env.execute("platine-enrichment-job")
+    
+    
+    if __name__ == "__main__":
+        main()
