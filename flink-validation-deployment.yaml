@@ -21,11 +21,10 @@ spec:
               set -ex
               # 1. Install PyFlink into shared directory using --prefix
               pip install --prefix=/opt/flink/python-libs apache-flink kafka-python-ng
-              
-              # 2. Download Kafka connector JAR
+
+              # 2. Download Kafka connector JAR using Python (no curl/wget dependency required)
               mkdir -p /opt/flink/usrlib
-              curl -Lo /opt/flink/usrlib/flink-sql-connector-kafka-3.1.0-1.18.jar \
-                https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar
+              python3 -c "import urllib.request; urllib.request.urlretrieve('https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar', '/opt/flink/usrlib/flink-sql-connector-kafka-3.1.0-1.18.jar')"
           volumeMounts:
             - name: python-libs
               mountPath: /opt/flink/python-libs
