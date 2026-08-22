@@ -4,17 +4,17 @@ metadata:
   name: flink-validation-job
   namespace: platine-traitement
 spec:
-  image: flink:1.20-scala_2.12-java17
-  flinkVersion: v1_20
-  flinkConfiguration:
-    taskmanager.numberOfTaskSlots: "2"
-    state.checkpoints.dir: file:///opt/flink/checkpoints
-  serviceAccount: flink
   podTemplate:
     spec:
       volumes:
-        - name: python-venv-volume
+        - name: python-venv-volume  # Changed name to match volumeMounts
           emptyDir: {}
+        - name: flink-usrlib
+          emptyDir: {}
+        - name: pyflink-scripts
+          configMap:
+            name: flink-pyflink-scripts
+
       initContainers:
         - name: pyflink-bootstrap
           image: flink:1.20-scala_2.12-java17
@@ -30,6 +30,7 @@ spec:
           volumeMounts:
             - name: python-venv-volume
               mountPath: /opt/flink/python-venv
+
       containers:
         - name: flink-main-container
           volumeMounts:
