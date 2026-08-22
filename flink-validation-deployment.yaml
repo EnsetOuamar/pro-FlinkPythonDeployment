@@ -1,13 +1,43 @@
-apiVersion: flink.apache.org/v1beta1
+apiVersion: flink.apache.org/v1
 kind: FlinkDeployment
 metadata:
   name: flink-validation-job
   namespace: platine-traitement
 spec:
+  flinkVersion: v1_20
+  image: flink:1.20-scala_2.12-java17
+  imagePullPolicy: IfNotPresent
+  serviceAccount: flink
+  
+  flinkConfiguration:
+    state.checkpoints.dir: file:///opt/flink/checkpoints
+    taskmanager.numberOfTaskSlots: "2"
+    
+  jobManager:
+    resource:
+      cpu: 0.5
+      memory: "1024m"
+      
+  taskManager:
+    resource:
+      cpu: 0.5
+      memory: "1024m"
+      
+  job:
+    jarURI: local:///opt/flink/opt/flink-python_2.12-1.20.1.jar
+    entryClass: org.apache.flink.client.python.PythonDriver
+    args:
+      - -pyclientexec
+      - /opt/flink/python-venv/bin/python3
+      - -py
+      - /opt/flink/scripts/validation_job.py
+    parallelism: 1
+    upgradeMode: stateless
+
   podTemplate:
     spec:
       volumes:
-        - name: python-venv-volume  # Changed name to match volumeMounts
+        - name: python-venv-volume
           emptyDir: {}
         - name: flink-usrlib
           emptyDir: {}
@@ -36,29 +66,3 @@ spec:
           volumeMounts:
             - name: python-venv-volume
               mountPath: /opt/flink/python-venv
-      volumes:
-        - name: python-venv
-          emptyDir: {}
-        - name: flink-usrlib
-          emptyDir: {}
-        - name: pyflink-scripts
-          configMap:
-            name: flink-pyflink-scripts
-  job:
-    jarURI: local:///opt/flink/opt/flink-python_2.12-1.20.1.jar
-    entryClass: org.apache.flink.client.python.PythonDriver
-    args:
-      - "-pyclientexec"
-      - "/opt/flink/python-venv/bin/python3"
-      - "-py"
-      - "/opt/flink/scripts/validation_job.py"
-    parallelism: 1
-    upgradeMode: stateless
-  jobManager:
-    resource:
-      memory: "1024m"
-      cpu: 0.5
-  taskManager:
-    resource:
-      memory: "1024m"
-      cpu: 0.5
