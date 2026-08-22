@@ -66,3 +66,5 @@ spec:
           volumeMounts:
             - name: python-venv-volume
               mountPath: /opt/flink/python-venv
+            - name: pyflink-scripts
+              mountPath: /opt/flink/scripts
