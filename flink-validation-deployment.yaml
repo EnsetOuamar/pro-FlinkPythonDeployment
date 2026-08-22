@@ -19,31 +19,29 @@ spec:
           args:
             - |
               set -ex
-              # 1. Install PyFlink into shared directory using --prefix
-              pip install --prefix=/opt/flink/python-libs apache-flink kafka-python-ng
+              # 1. Build a portable standalone venv into the shared volume
+              python3 -m venv /opt/flink/python-venv
+              /opt/flink/python-venv/bin/pip install --no-cache-dir apache-flink kafka-python-ng
 
-              # 2. Download Kafka connector JAR using Python (no curl/wget dependency required)
+              # 2. Download Kafka connector JAR using Python
               mkdir -p /opt/flink/usrlib
-              python3 -c "import urllib.request; urllib.request.urlretrieve('https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar', '/opt/flink/usrlib/flink-sql-connector-kafka-3.1.0-1.18.jar')"
+              /opt/flink/python-venv/bin/python3 -c "import urllib.request; urllib.request.urlretrieve('https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar', '/opt/flink/usrlib/flink-sql-connector-kafka-3.1.0-1.18.jar')"
           volumeMounts:
-            - name: python-libs
-              mountPath: /opt/flink/python-libs
+            - name: python-venv
+              mountPath: /opt/flink/python-venv
             - name: flink-usrlib
               mountPath: /opt/flink/usrlib
       containers:
         - name: flink-main-container
-          env:
-            - name: PYTHONPATH
-              value: "/opt/flink/python-libs/lib/python3.10/site-packages"
           volumeMounts:
-            - name: python-libs
-              mountPath: /opt/flink/python-libs
+            - name: python-venv
+              mountPath: /opt/flink/python-venv
             - name: flink-usrlib
               mountPath: /opt/flink/usrlib
             - name: pyflink-scripts
               mountPath: /opt/flink/scripts
       volumes:
-        - name: python-libs
+        - name: python-venv
           emptyDir: {}
         - name: flink-usrlib
           emptyDir: {}
@@ -55,7 +53,7 @@ spec:
     entryClass: org.apache.flink.client.python.PythonDriver
     args:
       - "-pyclientexec"
-      - "python3"
+      - "/opt/flink/python-venv/bin/python3"
       - "-py"
       - "/opt/flink/scripts/validation_job.py"
     parallelism: 1
