@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stream-processing-scripts
+  namespace: platine-traitement
+data:
+  validation.py: |
+    import json
+    from kafka import KafkaConsumer, KafkaProducer
+
+    bootstrap_servers = 'platine-kafka-kafka-bootstrap.platine-kafka.svc.cluster.local:9092'
+    consumer = KafkaConsumer('events.raw', bootstrap_servers=bootstrap_servers, group_id='flink-validation-group', value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+    producer = KafkaProducer(bootstrap_servers=bootstrap_servers, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+
+    for msg in consumer:
+        data = msg.value
+        if data.get('status') == 'OK' and 'imsi' in data:
+            data['validated_by'] = 'flink-validation-engine'
+            producer.send('events.validated', value=data)
+
+  enrichment.py: |
+    import json
+    from collections import defaultdict
+    from kafka import KafkaConsumer, KafkaProducer
+
+    bootstrap_servers = 'platine-kafka-kafka-bootstrap.platine-kafka.svc.cluster.local:9092'
+    consumer = KafkaConsumer('events.validated', bootstrap_servers=bootstrap_servers, group_id='flink-enrichment-group', value_deserializer=lambda m: json.loads(m.decode('utf-8')))
+    producer = KafkaProducer(bootstrap_servers=bootstrap_servers, value_serializer=lambda v: json.dumps(v).encode('utf-8'))
+
+    imsi_totals = defaultdict(int)
+
+    for msg in consumer:
+        data = msg.value
+        imsi = data['imsi']
+        total_bytes = data.get('bytes_in', 0) + data.get('bytes_out', 0)
+        imsi_totals[imsi] += total_bytes
+
+        data['total_bytes'] = total_bytes
+        data['total_bytes_imsi'] = imsi_totals[imsi]
+        data['enriched_by'] = 'flink-enrichment-engine'
+
+        producer.send('events.enriched', value=data)
