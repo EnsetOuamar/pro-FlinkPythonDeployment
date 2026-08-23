@@ -13,18 +13,23 @@ spec:
   podTemplate:
     spec:
       initContainers:
-        - name: install-pyflink
-          image: python:3.10-slim
-          command: ["/bin/sh", "-c"]
+        - name: pyflink-bootstrap
+          image: flink:1.20-scala_2.12-java17
+          command: ["/bin/bash", "-c"]
           args:
             - |
-              set -ex
-              # 1. Install PyFlink and Kafka client into shared volume
-              pip install --prefix=/opt/flink/python-libs apache-flink kafka-python-ng
-
-              # 2. Download Kafka connector JAR using Python's standard library (no curl needed)
-              mkdir -p /opt/flink/usrlib
-              python3 -c "import urllib.request; urllib.request.urlretrieve('https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.1.0-1.18/flink-sql-connector-kafka-3.1.0-1.18.jar', '/opt/flink/usrlib/flink-sql-connector-kafka-3.1.0-1.18.jar')"
+              set -e
+              apt-get update
+              apt-get install -y --no-install-recommends python3 python3-pip curl
+              PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+              PYBIN=$(readlink -f "$(which python3)")
+              mkdir -p /shared/venv/bin "/shared/venv/lib/python${PYVER}/site-packages"
+              cp "$PYBIN" /shared/venv/bin/python3
+              cp -a "/usr/lib/python${PYVER}/." "/shared/venv/lib/python${PYVER}/"
+              cp /usr/lib/x86_64-linux-gnu/libpython${PYVER}*.so* /shared/venv/lib/ 2>/dev/null || true
+              pip3 install --no-cache-dir --prefix=/shared/venv apache-flink==1.20.1
+              curl -fL -o /shared/jars/flink-sql-connector-kafka.jar \
+                https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
           volumeMounts:
             - name: shared-venv
               mountPath: /shared/venv
