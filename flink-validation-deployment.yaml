@@ -9,6 +9,8 @@ spec:
   flinkConfiguration:
     taskmanager.numberOfTaskSlots: "2"
     state.checkpoints.dir: file:///opt/flink/checkpoints
+    python.executable: /shared/venv/bin/python3
+    python.client.executable: /shared/venv/bin/python3
   serviceAccount: flink
   podTemplate:
     spec:
