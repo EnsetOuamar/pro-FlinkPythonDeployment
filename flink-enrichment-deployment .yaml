@@ -39,6 +39,13 @@ spec:
               mountPath: /shared/jars
       containers:
         - name: flink-main-container
+          startupProbe:
+            httpGet:
+              path: /config
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
           env:
             - name: PYTHONHOME
               value: /shared/venv
