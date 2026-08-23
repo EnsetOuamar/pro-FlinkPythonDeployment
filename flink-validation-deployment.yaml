@@ -4,67 +4,74 @@ metadata:
   name: flink-validation-job
   namespace: platine-traitement
 spec:
-  flinkVersion: v1_20
   image: flink:1.20-scala_2.12-java17
-  imagePullPolicy: IfNotPresent
-  serviceAccount: flink
-  
+  flinkVersion: v1_20
   flinkConfiguration:
-    state.checkpoints.dir: file:///opt/flink/checkpoints
     taskmanager.numberOfTaskSlots: "2"
-    
-  jobManager:
-    resource:
-      cpu: 0.5
-      memory: "1024m"
-      
-  taskManager:
-    resource:
-      cpu: 0.5
-      memory: "1024m"
-      
-  job:
-    jarURI: local:///opt/flink/opt/flink-python_2.12-1.20.1.jar
-    entryClass: org.apache.flink.client.python.PythonDriver
-    args:
-      - -pyclientexec
-      - /opt/flink/python-venv/bin/python3
-      - -py
-      - /opt/flink/scripts/validation_job.py
-    parallelism: 1
-    upgradeMode: stateless
-
+    state.checkpoints.dir: file:///opt/flink/checkpoints
+  serviceAccount: flink
   podTemplate:
     spec:
-      volumes:
-        - name: python-venv-volume
-          emptyDir: {}
-        - name: flink-usrlib
-          emptyDir: {}
-        - name: pyflink-scripts
-          configMap:
-            name: flink-pyflink-scripts
-
       initContainers:
         - name: pyflink-bootstrap
           image: flink:1.20-scala_2.12-java17
           command: ["/bin/bash", "-c"]
           args:
             - |
-              set -ex
+              set -e
               apt-get update
-              apt-get install -y --no-install-recommends python3 python3-pip python3-venv
-              python3 -m venv /opt/flink/python-venv
-              /opt/flink/python-venv/bin/pip install --no-cache-dir apache-flink==1.20.1 kafka-python-ng
-              chmod -R 777 /opt/flink/python-venv
+              apt-get install -y --no-install-recommends python3 python3-pip curl
+              PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+              PYBIN=$(readlink -f "$(which python3)")
+              mkdir -p /shared/venv/bin "/shared/venv/lib/python${PYVER}/site-packages"
+              cp "$PYBIN" /shared/venv/bin/python3
+              cp -a "/usr/lib/python${PYVER}/." "/shared/venv/lib/python${PYVER}/"
+              cp /usr/lib/x86_64-linux-gnu/libpython${PYVER}*.so* /shared/venv/lib/ 2>/dev/null || true
+              pip3 install --no-cache-dir --prefix=/shared/venv apache-flink==1.20.1
+              curl -fL -o /shared/jars/flink-sql-connector-kafka.jar \
+                https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
           volumeMounts:
-            - name: python-venv-volume
-              mountPath: /opt/flink/python-venv
-
+            - name: shared-venv
+              mountPath: /shared/venv
+            - name: shared-jars
+              mountPath: /shared/jars
       containers:
         - name: flink-main-container
+          env:
+            - name: PYTHONHOME
+              value: /shared/venv
+            - name: LD_LIBRARY_PATH
+              value: /shared/venv/lib
           volumeMounts:
-            - name: python-venv-volume
-              mountPath: /opt/flink/python-venv
+            - name: shared-venv
+              mountPath: /shared/venv
+            - name: shared-jars
+              mountPath: /shared/jars
             - name: pyflink-scripts
-              mountPath: /opt/flink/scripts
+              mountPath: /opt/flink/usrlib
+      volumes:
+        - name: shared-venv
+          emptyDir: {}
+        - name: shared-jars
+          emptyDir: {}
+        - name: pyflink-scripts
+          configMap:
+            name: flink-pyflink-scripts
+  job:
+    jarURI: local:///opt/flink/opt/flink-python_2.12-1.20.1.jar
+    entryClass: org.apache.flink.client.python.PythonDriver
+    args:
+      - "-pyclientexec"
+      - "/shared/venv/bin/python3"
+      - "-py"
+      - "/opt/flink/usrlib/validation_job.py"
+    parallelism: 1
+    upgradeMode: stateless
+  jobManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
+  taskManager:
+    resource:
+      memory: "1024m"
+      cpu: 0.5
