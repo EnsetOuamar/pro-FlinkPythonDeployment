@@ -13,25 +13,25 @@ spec:
     python.client.executable: /shared/venv/bin/python3
   serviceAccount: flink
   podTemplate:
-    spec:
-      initContainers:
-        - name: pyflink-bootstrap
-          image: flink:1.20-scala_2.12-java17
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-              set -e
-              apt-get update
-              apt-get install -y --no-install-recommends python3 python3-pip curl
-              PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
-              PYBIN=$(readlink -f "$(which python3)")
-              mkdir -p /shared/venv/bin "/shared/venv/lib/python${PYVER}/site-packages"
-              cp "$PYBIN" /shared/venv/bin/python3
-              cp -a "/usr/lib/python${PYVER}/." "/shared/venv/lib/python${PYVER}/"
-              cp /usr/lib/x86_64-linux-gnu/libpython${PYVER}*.so* /shared/venv/lib/ 2>/dev/null || true
-              pip3 install --no-cache-dir --prefix=/shared/venv apache-flink==1.20.1
-              curl -fL -o /shared/jars/flink-sql-connector-kafka.jar \
-                https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
+      spec:
+        initContainers:
+          - name: pyflink-bootstrap
+            image: flink:1.20-scala_2.12-java17
+            command: ["/bin/bash", "-c"]
+            args:
+              - |
+                set -e
+                apt-get update
+                apt-get install -y --no-install-recommends python3 python3-pip curl
+                PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+                PYBIN=$(readlink -f "$(which python3)")
+                mkdir -p /shared/venv/bin "/shared/venv/lib/python${PYVER}/site-packages"
+                cp "$PYBIN" /shared/venv/bin/python3
+                cp -a "/usr/lib/python${PYVER}/." "/shared/venv/lib/python${PYVER}/"
+                cp /usr/lib/x86_64-linux-gnu/libpython${PYVER}*.so* /shared/venv/lib/ 2>/dev/null || true
+                pip3 install --no-cache-dir --prefix=/shared/venv setuptools apache-flink==1.20.1
+                curl -fL -o /shared/jars/flink-sql-connector-kafka.jar \
+                  https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
           volumeMounts:
             - name: shared-venv
               mountPath: /shared/venv
