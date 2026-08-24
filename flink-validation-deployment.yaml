@@ -29,7 +29,7 @@ spec:
               cp "$PYBIN" /shared/venv/bin/python3
               cp -a "/usr/lib/python${PYVER}/." "/shared/venv/lib/python${PYVER}/"
               cp /usr/lib/x86_64-linux-gnu/libpython${PYVER}*.so* /shared/venv/lib/ 2>/dev/null || true
-              pip3 install --no-cache-dir --prefix=/shared/venv setuptools wheel apache-flink==1.20.1
+              pip3 install --no-cache-dir --ignore-installed --prefix=/shared/venv setuptools wheel apache-flink==1.20.1
               curl -fL -o /shared/jars/flink-sql-connector-kafka.jar \
                 https://repo.maven.apache.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.2.0-1.19/flink-sql-connector-kafka-3.2.0-1.19.jar
           volumeMounts:
